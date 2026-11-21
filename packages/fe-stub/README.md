@@ -1,11 +1,12 @@
 # fe-stub
 
-Stub HTTP calls in **any frontend** (React, Angular, Vue, Svelte, plain JS) from JSON files, **only on your local machine**.
+**A local stub API for any frontend** (React, Angular, Vue, Svelte, ...). It runs on its own port, like a real backend, and answers from JSON files.
 
-- Run `npm run start:stub` → matching calls get the stub response.
-- Run `npm start` → everything goes to the real API, as usual.
-- Works with `fetch`, Angular `HttpClient`, axios, and anything built on `XMLHttpRequest`.
-- Never activates outside `localhost` / `127.0.0.1`, even if the file ships by mistake.
+- `npm run start:stub` starts the stub API (port 3001) and your dev server together.
+- `npm start` works as before, against your real API.
+- No code in your app. Your app makes real HTTP calls; they just land on the stub server.
+- Optional `--target`: stub a few endpoints, forward everything else to the real backend.
+- Only reachable from your own machine (binds to `localhost`).
 - Written in TypeScript, zero runtime dependencies.
 
 ---
@@ -13,15 +14,9 @@ Stub HTTP calls in **any frontend** (React, Angular, Vue, Svelte, plain JS) from
 ## How it works
 
 ```
-stubs/*.json ──(fe-stub run)──▶ public/__stubs__.json { enabled: true, stubs: [...] }
-                                         │
-browser: setupStub() ── loads it ────────┘ ── patches fetch + XHR
-         request matches a stub?  yes → stub response     no → real network
+browser ──▶ dev server :4200 ──/api proxy──▶ fe-stub :3001 ──┬─ stub matches? → JSON from stubs/*.json
+                                                            └─ no match      → --target (real API) or 404
 ```
-
-1. `fe-stub run -- <dev command>` merges your stub files into one bundle with `enabled: true`, watches for edits, and starts your dev server.
-2. `setupStub()` in your app loads that bundle and intercepts matching requests.
-3. When you stop the command, the bundle is flipped back to `enabled: false`.
 
 ---
 
@@ -29,95 +24,69 @@ browser: setupStub() ── loads it ────────┘ ── patches 
 
 ```bash
 npm i -D fe-stub
-npx fe-stub init        # creates stubs/, fe-stub.config.json, gitignores the bundle
+npx fe-stub init
 ```
 
-Add one script to `package.json`:
+`init` creates `stubs/` with examples and `fe-stub.config.json`. In an Angular project it also creates `proxy.stub.json`.
+
+Then add one script, based on your framework.
+
+### Angular
 
 ```json
-{
-  "scripts": {
-    "start": "ng serve",
-    "start:stub": "fe-stub run -- ng serve"
-  }
-}
+"start":      "ng serve",
+"start:stub": "fe-stub run -- ng serve --proxy-config proxy.stub.json"
 ```
-
-Use your own dev command: `vite`, `react-scripts start`, `next dev`, `vue-cli-service serve`, etc.
-
----
-
-## Wire it into your app
-
-Call `setupStub()` **before** the app starts making requests.
-
-### React (Vite)
-
-```tsx
-// src/main.tsx
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-
-async function start() {
-  if (import.meta.env.DEV) {
-    const { setupStub } = await import('fe-stub');
-    await setupStub();
-  }
-  ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
-}
-
-start();
-```
-
-### React (Create React App / webpack)
-
-Same as above, but use `if (process.env.NODE_ENV === 'development')`.
-
-### Angular (17+)
-
-```ts
-// src/main.ts
-import { bootstrapApplication } from '@angular/platform-browser';
-import { isDevMode } from '@angular/core';
-import { AppComponent } from './app/app.component';
-import { appConfig } from './app/app.config';
-
-async function start() {
-  if (isDevMode()) {
-    const { setupStub } = await import('fe-stub');
-    await setupStub();
-  }
-  await bootstrapApplication(AppComponent, appConfig);
-}
-
-start().catch((err) => console.error(err));
-```
-
-Angular serves `public/` by default (v18+). On older projects that use `src/assets`, set the output and URL:
 
 ```json
-// fe-stub.config.json
-{ "dir": "stubs", "out": "src/assets/__stubs__.json" }
+// proxy.stub.json
+{ "/api": { "target": "http://localhost:3001", "secure": false } }
+```
+
+Your services keep calling `/api/...`. Nothing else changes.
+
+> If your `environment.apiUrl` is an absolute URL (e.g. `https://api.example.com`), either switch dev to a relative `/api` with the proxy, or add an `environment.stub.ts` with `apiUrl: 'http://localhost:3001'` and run `ng serve --configuration stub`. CORS is already handled.
+
+### React + Vite
+
+```json
+"dev":      "vite",
+"dev:stub": "fe-stub run -- vite"
 ```
 
 ```ts
-await setupStub({ url: '/assets/__stubs__.json' });
+// vite.config.ts
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: process.env.FE_STUB_URL
+      ? { '/api': { target: process.env.FE_STUB_URL, changeOrigin: true } }
+      : undefined,
+  },
+});
 ```
 
-For `NgModule` apps, wrap `platformBrowserDynamic().bootstrapModule(AppModule)` the same way.
+### React (Create React App) or any app with an API URL env var
 
-### Vue / Svelte / anything else
+```json
+"start:stub": "fe-stub run --env REACT_APP_API_URL -- react-scripts start"
+```
 
-Same pattern: `await setupStub()` before `createApp(...).mount(...)`.
+`--env NAME` sets that variable to `http://localhost:3001` for the dev command. Use `VITE_API_URL`, `NEXT_PUBLIC_API_URL`, etc. the same way.
 
-> Using a dynamic `import()` behind a dev check keeps fe-stub out of your production bundle entirely.
+### Just the server
+
+```bash
+npx fe-stub serve --port 3001
+```
+
+Point anything at `http://localhost:3001`: your app, Postman, curl, Playwright tests.
 
 ---
 
-## Stub file format
+## Stub files
 
-Put any number of `.json` files in `stubs/`. Each file can be one stub, an array of stubs, or `{ "stubs": [...] }`.
+Put any number of `.json` files in `stubs/`. Each file is one stub, an array of stubs, or `{ "stubs": [...] }`.
 
 ```json
 {
@@ -152,14 +121,14 @@ Put any number of `.json` files in `stubs/`. Each file can be one stub, an array
 
 | Field | Required | Notes |
 |---|---|---|
-| `endpoint` | ✔ | `/api/users`, `/api/users/:id`, `/api/files/*`, or a full URL `https://api.x.com/v1/ping` |
+| `endpoint` | ✔ | `/api/users`, `/api/users/:id`, `/api/files/*` |
 | `method` | | `GET` (default), `POST`, `PUT`, `PATCH`, `DELETE`, or `*` for any |
 | `response.status` | | Default `200` |
 | `response.body` | | Any JSON. Objects are sent as `application/json` |
-| `response.bodyFile` | | Load the body from a JSON file (relative to the stub file) |
+| `response.bodyFile` | | Load the body from a file, relative to the stub file |
 | `response.headers` | | Extra response headers |
 | `response.delay` | | Fake latency in ms |
-| `match.body` | | Partial match on the JSON request body |
+| `match.body` | | Partial match on the JSON or form request body |
 | `match.query` | | Exact match on query params |
 | `match.headers` | | Exact match on request headers |
 | `enabled` | | `false` keeps the stub on file but skips it |
@@ -167,13 +136,11 @@ Put any number of `.json` files in `stubs/`. Each file can be one stub, an array
 
 **Rules**
 
-- **First match wins.** Put specific stubs (with `match`) before generic ones. `fe-stub validate` warns when one hides another.
-- Relative endpoints match **any host**, so `/api/orders` also catches `http://localhost:8080/api/orders` (handy when your `environment.apiUrl` points at a local backend).
-- Unmatched requests go to the real network untouched.
+- **First match wins.** Files load in alphabetical order. Put specific stubs (with `match`) before generic ones. `fe-stub validate` warns when one hides another.
+- **Templates** in the body: `{{params.id}}`, `{{query.page}}`, `{{body.email}}`. A string that is only a placeholder keeps its type (`"{{body.qty}}"` → `2`, not `"2"`).
+- **Edits reload instantly.** Save a stub file and the next request uses it. If the file is broken, the previous stubs stay active and the error is logged.
 
-**Templates** in `response.body`: `{{params.id}}`, `{{query.page}}`, `{{body.email}}`. A string that is only a placeholder keeps its type (`"{{body.qty}}"` → `2`, not `"2"`).
-
-**Editor autocomplete:** add `"$schema": "../node_modules/fe-stub/schema.json"` (object form), or in VS Code `settings.json`:
+**Editor autocomplete:** use `"$schema"` as above, or in VS Code `settings.json`:
 
 ```json
 "json.schemas": [{ "fileMatch": ["stubs/*.json"], "url": "./node_modules/fe-stub/schema.json" }]
@@ -181,62 +148,59 @@ Put any number of `.json` files in `stubs/`. Each file can be one stub, an array
 
 ---
 
-## Turning it on and off
+## Behaves like a real API
 
-| How | Effect |
-|---|---|
-| `npm run start:stub` | On while the command runs |
-| `npm start` | Off |
-| `?stub=off` in the browser URL | Off, remembered in localStorage |
-| `?stub=on` | On, even with plain `npm start` (needs the bundle file to exist: run `fe-stub build` once) |
-| `?stub=reset` | Forget the override |
-| Click the purple **STUB** badge | Turn off and reload |
-| Not on localhost | Always off. Cannot be overridden |
-
-Every stubbed call is logged to the console:
-`[fe-stub] POST /api/orders → 201 (Create order)`
+- **CORS** is on, so a browser can call `http://localhost:3001` directly. Preflights, credentials and custom response headers all work.
+- **Unmatched requests:** forwarded to `--target` if set, otherwise `404` with a JSON message naming the missing route.
+- **Logs** every request:
+  ```
+  [fe-stub] POST   /api/auth/login → 200 stub "Login OK" (302ms)
+  [fe-stub] GET    /api/orders → 200 → api.example.com (85ms)
+  [fe-stub] GET    /api/nope → 404 no stub (0ms)
+  ```
+- **`GET /__fe-stub`** lists the loaded stubs.
 
 ---
 
 ## CLI
 
 ```
-fe-stub init                      Create stubs/ with examples and fe-stub.config.json
-fe-stub run [opts] -- <command>   Bundle with stubs ON, watch for changes, run <command>
-fe-stub build [opts] [--enabled]  Write the bundle once (OFF unless --enabled)
-fe-stub validate [opts]           Check stub files; exit 1 on errors (good for CI)
-fe-stub list [opts]               Table of stubbed endpoints
+fe-stub serve [opts]                  Start the stub API
+fe-stub run [opts] -- <dev command>   Start the stub API, then your dev server (stops together)
+fe-stub init                          Create stubs/ and fe-stub.config.json (+ proxy.stub.json for Angular)
+fe-stub validate [opts]               Check stub files; exit 1 on errors (good for CI)
+fe-stub list [opts]                   Table of stubbed endpoints
 
---dir <path>   Stub folder         (default: stubs)
---out <path>   Bundle output file  (default: public/__stubs__.json)
+--port <n>       Stub API port                      (default 3001)
+--dir <path>     Stub folder                        (default stubs)
+--target <url>   Forward unmatched calls here       (default: none → 404)
+--host <host>    Interface to bind                  (default localhost = this machine only)
+--env <NAME>     run only: set NAME=<stub API URL> for the dev command (repeatable)
 ```
 
-Edits to stub files are picked up on the next request. No restart needed.
+`run` always sets `FE_STUB=true`, `FE_STUB_URL` and `FE_STUB_PORT` for the dev command.
+
+All options can live in `fe-stub.config.json`:
+
+```json
+{ "dir": "stubs", "port": 3001, "target": "https://dev-api.example.com" }
+```
 
 ---
 
-## `setupStub(options)`
+## Programmatic use (e.g. in Playwright / Cypress setup)
 
 ```ts
-import { setupStub, defineStubs } from 'fe-stub';
+import { startStubServer, defineStubs } from 'fe-stub';
 
-const stub = await setupStub({
-  url: '/__stubs__.json',      // where the bundle is served
-  stubs: defineStubs([...]),   // or pass stubs inline (skips the bundle)
-  enabled: undefined,          // force true/false; default: bundle decides
-  allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'], // + *.localhost
-  log: true,                   // console log per stubbed call
-  badge: true,                 // corner badge
-  fetch: true,                 // patch window.fetch
-  xhr: true,                   // patch XMLHttpRequest
+const api = await startStubServer({
+  port: 0,                       // random free port
+  stubs: defineStubs([{ method: 'POST', endpoint: '/api/login', response: { status: 401 } }]),
+  log: false,
 });
-
-stub.active;      // boolean
-stub.stubs;       // loaded stubs
-stub.uninstall(); // restore fetch / XHR
+console.log(api.url);            // http://localhost:54321
+await api.close();
 ```
-
-Also available in the console as `window.__feStub`.
 
 ---
 
@@ -245,5 +209,5 @@ Also available in the console as `window.__feStub`.
 ```bash
 npm install
 npm run build   # tsc → dist/
-npm test        # 18 tests: matcher, fetch, XHR, setup, CLI
+npm test        # matcher, server (real HTTP), CLI
 ```

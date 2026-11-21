@@ -2,5 +2,8 @@
   "scripts": {
     "dev": "vite",
     "dev:stub": "fe-stub run -- vite"
+  },
+  "devDependencies": {
+    "fe-stub": "^0.2.0"
   }
 }

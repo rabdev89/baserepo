@@ -4,11 +4,11 @@ export type HttpMethod =
 export interface StubResponse {
   /** HTTP status code. Default 200. */
   status?: number;
-  /** Response headers. `content-type: application/json` is added for object bodies. */
+  /** Response headers. `content-type` is added automatically for JSON / text bodies. */
   headers?: Record<string, string>;
   /** Response body. Strings support {{params.x}}, {{query.x}}, {{body.x}} placeholders. */
   body?: unknown;
-  /** Path to a JSON file (relative to the stub file). Inlined by the CLI at build time. */
+  /** Path to a JSON (or text) file, relative to the stub file. */
   bodyFile?: string;
   /** Artificial latency in ms. Default 0. */
   delay?: number;
@@ -19,7 +19,7 @@ export interface StubMatch {
   query?: Record<string, string | number | boolean>;
   /** Every listed header must equal the given value (case-insensitive name). */
   headers?: Record<string, string>;
-  /** Partial deep match against the JSON request body. */
+  /** Partial deep match against the JSON / form request body. */
   body?: unknown;
 }
 
@@ -27,7 +27,7 @@ export interface Stub {
   name?: string;
   /** Default 'GET'. Use '*' for any method. */
   method?: HttpMethod | Lowercase<HttpMethod>;
-  /** "/api/users/:id", "/api/*", or an absolute URL "https://api.example.com/users". */
+  /** Request path: "/api/users", "/api/users/:id", "/api/files/*". */
   endpoint: string;
   /** Default true. Set false to keep a stub on file but skip it. */
   enabled?: boolean;
@@ -35,28 +35,20 @@ export interface Stub {
   response: StubResponse;
 }
 
-/** The JSON file the CLI writes and the runtime loads. */
-export interface StubBundle {
-  enabled: boolean;
-  generatedAt?: string;
-  stubs: Stub[];
-}
-
 export interface CompiledStub extends Omit<Stub, 'method' | 'response' | 'name' | 'enabled'> {
   name: string;
   method: string;
   enabled: boolean;
   response: Required<Pick<StubResponse, 'status' | 'headers' | 'delay'>> & StubResponse;
-  _origin: string | null;
   _regex: RegExp;
   _keys: string[];
 }
 
 export interface StubRequest {
   method?: string;
+  /** Path with optional query string, e.g. "/api/users?page=2". */
   url: string;
-  baseUrl?: string;
-  headers?: Headers | Record<string, string> | null;
+  headers?: Record<string, string | string[] | undefined> | null;
   body?: unknown;
 }
 
@@ -67,40 +59,43 @@ export interface StubHit {
 
 export interface ResolvedResponse {
   status: number;
-  statusText: string;
   headers: Record<string, string>;
-  /** Already-serialised body text, or null for empty bodies. */
+  /** Serialised body, or null for an empty body. */
   bodyText: string | null;
   delay: number;
 }
 
-export interface SetupOptions {
-  /** URL of the bundle the CLI writes. Default '/__stubs__.json'. Ignored if `stubs` is given. */
-  url?: string;
-  /** Pass stubs inline instead of loading a bundle. */
+export interface ServerOptions {
+  /** Folder with stub JSON files. Default 'stubs'. Ignored if `stubs` is given. */
+  dir?: string;
+  /** Inline stubs instead of a folder. */
   stubs?: Stub[];
+  /** Port to listen on. Default 3001. Use 0 for a random free port. */
+  port?: number;
   /**
-   * Force on/off. When omitted, the bundle's `enabled` flag decides
-   * (true while `fe-stub run` is active). A `?stub=on|off` URL toggle overrides both.
+   * Interface to bind. Default 'localhost' = 127.0.0.1 and ::1 only,
+   * so the stub API is reachable from this machine and nowhere else.
    */
-  enabled?: boolean;
-  /** Hostnames where stubbing is allowed. Stubs never run anywhere else. */
-  allowedHosts?: string[];
-  /** Log every stubbed call to the console. Default true. */
-  log?: boolean;
-  /** Show a small "STUB" badge in the corner. Default true. */
-  badge?: boolean;
-  /** Patch window.fetch. Default true. */
-  fetch?: boolean;
-  /** Patch XMLHttpRequest (Angular HttpClient, axios). Default true. */
-  xhr?: boolean;
+  host?: string;
+  /** Real backend. Requests with no matching stub are forwarded here. Otherwise they get 404. */
+  target?: string;
+  /** Reload stubs when files in `dir` change. Default true. */
+  watch?: boolean;
+  /** Add CORS headers so the browser can call the stub API directly. Default true. */
+  cors?: boolean;
+  /** Log each request. `false` to silence, or a function to receive lines. Default console.log. */
+  log?: boolean | ((line: string) => void);
+  /** Base folder for relative paths. Default process.cwd(). */
+  cwd?: string;
 }
 
-export interface StubController {
-  /** True if interception is active. */
-  readonly active: boolean;
-  /** Loaded stubs. */
+export interface StubServer {
+  /** e.g. "http://localhost:3001" */
+  readonly url: string;
+  readonly port: number;
+  /** Currently loaded stubs. */
   readonly stubs: CompiledStub[];
-  /** Restore the original fetch / XMLHttpRequest. */
-  uninstall(): void;
+  /** Re-read the stub folder. Throws if the files are invalid (previous stubs stay active). */
+  reload(): void;
+  close(): Promise<void>;
 }

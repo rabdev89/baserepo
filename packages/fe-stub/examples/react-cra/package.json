@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "start": "react-scripts start",
+    "start:stub": "fe-stub run --env REACT_APP_API_URL -- react-scripts start"
+  },
+  "devDependencies": {
+    "fe-stub": "^0.2.0"
+  }
+}

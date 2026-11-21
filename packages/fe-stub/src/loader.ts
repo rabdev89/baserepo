@@ -1,19 +1,23 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { compileStub } from '../matcher.js';
-import type { Stub, StubBundle } from '../types.js';
+import { compileStub } from './matcher.js';
+import type { Stub } from './types.js';
 
 export interface Config {
   /** Folder that holds the stub JSON files. */
   dir: string;
-  /** Where the bundle is written. Must be served by your dev server (public/ or src/assets/). */
-  out: string;
+  /** Port of the stub API. */
+  port: number;
+  /** Interface to bind. 'localhost' = this machine only. */
+  host: string;
+  /** Optional real backend for requests without a stub. */
+  target?: string;
 }
 
-export const DEFAULT_CONFIG: Config = { dir: 'stubs', out: 'public/__stubs__.json' };
+export const DEFAULT_CONFIG: Config = { dir: 'stubs', port: 3001, host: 'localhost' };
 export const CONFIG_FILE = 'fe-stub.config.json';
 
-export function loadConfig(cwd: string, overrides: Partial<Config>): Config {
+export function loadConfig(cwd: string, overrides: Partial<Config> = {}): Config {
   let fileCfg: Partial<Config> = {};
   const path = join(cwd, CONFIG_FILE);
   if (existsSync(path)) fileCfg = JSON.parse(readFileSync(path, 'utf8')) as Partial<Config>;
@@ -21,14 +25,20 @@ export function loadConfig(cwd: string, overrides: Partial<Config>): Config {
   return { ...DEFAULT_CONFIG, ...fileCfg, ...clean };
 }
 
+export type FileStub = Stub & { _file: string };
+
 export interface CollectResult {
-  stubs: Array<Stub & { _file: string }>;
+  stubs: FileStub[];
   /** JSON files that are not stub definitions (e.g. bodyFile payloads). */
   dataFiles: string[];
   errors: string[];
 }
 
-/** Read every *.json under `dir`. A file is a stub file if it is a stub, an array of stubs, or { stubs: [...] }. */
+/**
+ * Read every *.json under `dir` (sorted by path, so order is predictable).
+ * A file is a stub file if it is a stub, an array of stubs, or { "stubs": [...] }.
+ * Anything else is treated as a data file (e.g. a bodyFile payload).
+ */
 export function collectStubs(dir: string, cwd = process.cwd()): CollectResult {
   const root = resolve(cwd, dir);
   const result: CollectResult = { stubs: [], dataFiles: [], errors: [] };
@@ -66,24 +76,12 @@ export function collectStubs(dir: string, cwd = process.cwd()): CollectResult {
   return result;
 }
 
-export function writeBundle(out: string, stubs: Stub[], enabled: boolean, cwd = process.cwd()): string {
-  const path = resolve(cwd, out);
-  mkdirSync(dirname(path), { recursive: true });
-  const bundle: StubBundle = {
-    enabled,
-    generatedAt: new Date().toISOString(),
-    stubs: stubs.map(({ _file, ...s }: Stub & { _file?: string }) => s),
-  };
-  writeFileSync(path, `${JSON.stringify(bundle, null, 2)}\n`);
-  return path;
-}
-
 /**
  * First match wins. Once a stub without `match` rules is seen, any later stub
  * with the same method + endpoint can never be hit.
  */
-export function findShadowed(stubs: Array<Stub & { _file: string }>): string[] {
-  const catchAll = new Map<string, Stub & { _file: string }>();
+export function findShadowed(stubs: FileStub[]): string[] {
+  const catchAll = new Map<string, FileStub>();
   const warnings: string[] = [];
   for (const s of stubs) {
     if (s.enabled === false) continue;

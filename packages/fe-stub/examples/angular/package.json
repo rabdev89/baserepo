@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "start": "ng serve",
+    "start:stub": "fe-stub run -- ng serve --proxy-config proxy.stub.json"
+  },
+  "devDependencies": {
+    "fe-stub": "^0.2.0"
+  }
+}

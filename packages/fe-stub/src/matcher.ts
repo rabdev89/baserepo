@@ -3,14 +3,7 @@ import type {
   CompiledStub, ResolvedResponse, Stub, StubHit, StubRequest,
 } from './types.js';
 
-const ANY_ORIGIN = 'http://fe-stub.local';
-
-const STATUS_TEXT: Record<number, string> = {
-  200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content',
-  400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found',
-  409: 'Conflict', 422: 'Unprocessable Entity', 429: 'Too Many Requests',
-  500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable',
-};
+const BASE = 'http://fe-stub.local';
 
 /** Validate a stub and pre-compile its endpoint pattern. */
 export function compileStub(stub: Stub, index = 0): CompiledStub {
@@ -24,15 +17,13 @@ export function compileStub(stub: Stub, index = 0): CompiledStub {
     throw new Error(`[fe-stub] stub "${stub.name ?? stub.endpoint}" is missing "response"`);
   }
   const method = (stub.method ?? 'GET').toUpperCase();
-  const { origin, pathname } = splitUrl(stub.endpoint);
-  const { regex, keys } = pathToRegex(pathname);
+  const { regex, keys } = pathToRegex(toPath(stub.endpoint));
   return {
     ...stub,
     name: stub.name ?? `${method} ${stub.endpoint}`,
     method,
     enabled: stub.enabled !== false,
     response: { status: 200, headers: {}, delay: 0, ...stub.response },
-    _origin: origin,
     _regex: regex,
     _keys: keys,
   };
@@ -42,12 +33,12 @@ export function compileStubs(stubs: Stub[]): CompiledStub[] {
   return stubs.map((s, i) => compileStub(s, i));
 }
 
-/** First enabled stub matching the request, or null (request goes to the real network). */
+/** First enabled stub matching the request, or null. */
 export function findStub(stubs: CompiledStub[], req: StubRequest): StubHit | null {
   const method = (req.method ?? 'GET').toUpperCase();
   let url: URL;
   try {
-    url = new URL(req.url, req.baseUrl ?? ANY_ORIGIN);
+    url = new URL(req.url, BASE);
   } catch {
     return null;
   }
@@ -55,7 +46,6 @@ export function findStub(stubs: CompiledStub[], req: StubRequest): StubHit | nul
   for (const stub of stubs) {
     if (!stub.enabled) continue;
     if (stub.method !== '*' && stub.method !== method) continue;
-    if (stub._origin && stub._origin !== url.origin) continue;
 
     const m = stub._regex.exec(url.pathname);
     if (!m) continue;
@@ -74,7 +64,7 @@ export function findStub(stubs: CompiledStub[], req: StubRequest): StubHit | nul
 
 /** Build the final response (templating + serialisation) for a hit. */
 export function resolveResponse(hit: StubHit, req: StubRequest): ResolvedResponse {
-  const url = new URL(req.url, req.baseUrl ?? ANY_ORIGIN);
+  const url = new URL(req.url, BASE);
   const ctx = {
     params: hit.params,
     query: Object.fromEntries(url.searchParams.entries()),
@@ -98,7 +88,6 @@ export function resolveResponse(hit: StubHit, req: StubRequest): ResolvedRespons
 
   return {
     status,
-    statusText: STATUS_TEXT[status] ?? '',
     headers: outHeaders,
     bodyText,
     delay,
@@ -123,13 +112,11 @@ export function pathToRegex(path: string): { regex: RegExp; keys: string[] } {
   return { regex: new RegExp(`^${pattern}/?$`), keys };
 }
 
-function splitUrl(endpoint: string): { origin: string | null; pathname: string } {
-  if (/^https?:\/\//i.test(endpoint)) {
-    const u = new URL(endpoint.replace(/:(\w+)/g, (m, k, off) => (off < 8 ? m : `__${k}__`)));
-    const pathname = decodeURI(u.pathname).replace(/__(\w+)__/g, ':$1');
-    return { origin: u.origin, pathname };
-  }
-  return { origin: null, pathname: endpoint.split('?')[0] };
+/** Accepts "/api/x", "api/x" or a full URL (only its path is used). */
+function toPath(endpoint: string): string {
+  let path = endpoint.split('?')[0].replace(/^https?:\/\/[^/]+/i, '');
+  if (!path.startsWith('/')) path = `/${path}`;
+  return path;
 }
 
 function matchQuery(expected: Record<string, unknown>, sp: URLSearchParams): boolean {
@@ -139,10 +126,9 @@ function matchQuery(expected: Record<string, unknown>, sp: URLSearchParams): boo
 function matchHeaders(expected: Record<string, string>, headers: StubRequest['headers']): boolean {
   const get = (name: string): string | null => {
     if (!headers) return null;
-    if (typeof (headers as Headers).get === 'function') return (headers as Headers).get(name);
-    const rec = headers as Record<string, string>;
-    const key = Object.keys(rec).find((h) => h.toLowerCase() === name.toLowerCase());
-    return key ? rec[key] : null;
+    const key = Object.keys(headers).find((h) => h.toLowerCase() === name.toLowerCase());
+    const v = key ? headers[key] : undefined;
+    return Array.isArray(v) ? v.join(', ') : v ?? null;
   };
   return Object.entries(expected).every(([k, v]) => get(k) === String(v));
 }
@@ -152,12 +138,7 @@ export function parseBody(body: unknown): unknown {
   if (typeof body === 'string') {
     try { return JSON.parse(body); } catch { return body; }
   }
-  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
-    return Object.fromEntries(body.entries());
-  }
-  if (typeof FormData !== 'undefined' && body instanceof FormData) {
-    return Object.fromEntries(body.entries());
-  }
+  if (body instanceof URLSearchParams) return Object.fromEntries(body.entries());
   return body;
 }
 

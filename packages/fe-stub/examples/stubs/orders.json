@@ -55,16 +55,6 @@
           "page": 2
         }
       }
-    },
-    {
-      "name": "Third-party API",
-      "method": "GET",
-      "endpoint": "https://api.payments.example.com/v1/status",
-      "response": {
-        "body": {
-          "up": true
-        }
-      }
     }
   ]
 }
