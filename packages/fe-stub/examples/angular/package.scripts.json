@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "start": "ng serve",
+    "start:stub": "fe-stub run -- ng serve"
+  }
+}

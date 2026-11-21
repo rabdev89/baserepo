@@ -1,0 +1,41 @@
+{
+  "name": "fe-stub",
+  "version": "0.1.0",
+  "description": "Framework-agnostic HTTP stubbing for local frontend development (React, Angular, Vue, Svelte...). Intercepts fetch and XMLHttpRequest using JSON stub files.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema.json": "./schema.json",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "fe-stub": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "schema.json",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["stub", "mock", "fetch", "xhr", "react", "angular", "vue", "frontend", "dev"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

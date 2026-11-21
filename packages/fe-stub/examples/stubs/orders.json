@@ -1,0 +1,70 @@
+{
+  "$schema": "../../schema.json",
+  "stubs": [
+    {
+      "name": "Create order - out of stock",
+      "method": "POST",
+      "endpoint": "/api/orders",
+      "match": {
+        "body": {
+          "sku": "SOLD-OUT"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "message": "Out of stock"
+        }
+      }
+    },
+    {
+      "name": "Create order",
+      "method": "POST",
+      "endpoint": "/api/orders",
+      "response": {
+        "status": 201,
+        "delay": 400,
+        "body": {
+          "id": "ord_123",
+          "sku": "{{body.sku}}",
+          "qty": "{{body.qty}}",
+          "status": "PENDING"
+        }
+      }
+    },
+    {
+      "name": "Get order",
+      "method": "GET",
+      "endpoint": "/api/orders/:id",
+      "response": {
+        "bodyFile": "responses/order.json"
+      }
+    },
+    {
+      "name": "Search orders page 2",
+      "method": "GET",
+      "endpoint": "/api/orders",
+      "match": {
+        "query": {
+          "page": 2
+        }
+      },
+      "response": {
+        "body": {
+          "items": [],
+          "page": 2
+        }
+      }
+    },
+    {
+      "name": "Third-party API",
+      "method": "GET",
+      "endpoint": "https://api.payments.example.com/v1/status",
+      "response": {
+        "body": {
+          "up": true
+        }
+      }
+    }
+  ]
+}

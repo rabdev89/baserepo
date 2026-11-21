@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "dev": "vite",
+    "dev:stub": "fe-stub run -- vite"
+  }
+}
